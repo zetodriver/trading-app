@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>Futures Signal App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial; background:#0f172a; color:white; text-align:center; }
+    .card { background:#1e293b; margin:15px; padding:15px; border-radius:12px; }
+    .a { color:#22c55e; font-weight:bold; }
+    .b { color:#eab308; }
+    .no { color:#ef4444; }
+    .status { font-size:12px; opacity:0.7; }
+  </style>
+</head>
+
+<body>
+
+<h2>📊 Futures Signal App (Stable)</h2>
+
+<div id="status" class="status">Connecting...</div>
+
+<div id="oil" class="card">Loading WTI...</div>
+<div id="es" class="card">Loading S&P...</div>
+
+<script>
+
+async function fetchData(symbol, interval="5m", retries=2) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${interval}&range=1d`;
+    const res = await fetch(url);
+    const json = await res.json();
+
+    let data = json.chart.result[0].indicators.quote[0].close
+      .filter(v => v !== null);
+
+    if (data.length < 20) throw "bad data";
+
+    return data;
+
+  } catch(e){
+    if(retries > 0) return fetchData(symbol, interval, retries-1);
+    throw e;
+  }
+}
+
+function EMA(data,p){
+  let k=2/(p+1), ema=data[0];
+  for(let i=1;i<data.length;i++) ema=data[i]*k+ema*(1-k);
+  return ema;
+}
+
+function RSI(data,p=14){
+  let g=0,l=0;
+  for(let i=data.length-p;i<data.length;i++){
+    let d=data[i]-data[i-1];
+    if(d>0) g+=d; else l+=Math.abs(d);
+  }
+  if(l===0) return 100;
+  let rs=g/l;
+  return 100-(100/(1+rs));
+}
+
+function VWAP(data){
+  return data.reduce((a,b)=>a+b,0)/data.length;
+}
+
+function evaluate(d1,d5,d15){
+  let emaFast = EMA(d5,9);
+  let emaSlow = EMA(d5,21);
+  let trend = emaFast > emaSlow ? "BULL" : "BEAR";
+
+  let price = d1[d1.length-1];
+  let vwap = VWAP(d5);
+  let rsi = RSI(d5);
+
+  let aligned = (trend === (EMA(d15,9) > EMA(d15,21) ? "BULL":"BEAR"));
+  let correctSide = (trend==="BULL" && price>vwap) || (trend==="BEAR" && price<vwap);
+  let momentum = (trend==="BULL" && rsi<65) || (trend==="BEAR" && rsi>35);
+
+  if(aligned && correctSide && momentum){
+    return {grade:"A+", action:trend==="BULL"?"BUY":"SELL"};
+  }
+
+  if(aligned){
+    return {grade:"B", action:"WAIT"};
+  }
+
+  return {grade:"NO TRADE", action:"STAY OUT"};
+}
+
+async function analyze(symbol, id, name){
+  try{
+    let d1 = (await fetchData(symbol,"1m")).slice(-50);
+    let d5 = (await fetchData(symbol,"5m")).slice(-50);
+    let d15 = (await fetchData(symbol,"15m")).slice(-50);
+
+    let result = evaluate(d1,d5,d15);
+    let price = d1[d1.length-1];
+    let vwap = VWAP(d5);
+
+    let cls = result.grade==="A+"?"a":result.grade==="B"?"b":"no";
+
+    document.getElementById(id).innerHTML = `
+      <h3>${name}</h3>
+      <p>Price: ${price.toFixed(2)}</p>
+      <p>VWAP: ${vwap.toFixed(2)}</p>
+      <p class="${cls}">${result.grade} - ${result.action}</p>
+    `;
+
+    document.getElementById("status").innerText = "Live";
+
+  } catch(e){
+    document.getElementById(id).innerHTML = `${name} data error`;
+    document.getElementById("status").innerText = "Data delayed / retrying...";
+  }
+}
+
+function run(){
+  analyze("CL=F","oil","WTI Oil");
+  analyze("ES=F","es","S&P E-mini");
+}
+
+run();
+setInterval(run,120000); // 🔥 slower refresh = more stable
+
+</script>
+
+</body>
+</html>
