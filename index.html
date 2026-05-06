@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>Futures Signal App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial; background:#0f172a; color:white; text-align:center; }
+    .card { background:#1e293b; margin:15px; padding:15px; border-radius:12px; }
+    .good { color:#22c55e; font-weight:bold; }
+    .mid { color:#eab308; }
+    .bad { color:#ef4444; }
+  </style>
+</head>
+<body>
+
+<h2>📊 Futures Dashboard</h2>
+
+<div id="oil" class="card">Loading WTI...</div>
+<div id="es" class="card">Loading S&P...</div>
+
+<script>
+async function get(symbol){
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=1d`;
+  const res = await fetch(url);
+  const json = await res.json();
+  return json.chart.result[0].indicators.quote[0].close.filter(v=>v);
+}
+
+function avg(a){ return a.reduce((x,y)=>x+y,0)/a.length; }
+
+function analyze(data){
+  let price = data[data.length-1];
+  let vwap = avg(data);
+  let high = Math.max(...data);
+  let low = Math.min(...data);
+
+  let signal = "NO TRADE";
+  let cls = "bad";
+
+  if(price > vwap && price < high*0.995){
+    signal = "BUY BIAS";
+    cls = "good";
+  } else if(price < vwap && price > low*1.005){
+    signal = "SELL BIAS";
+    cls = "good";
+  } else {
+    signal = "WAIT";
+    cls = "mid";
+  }
+
+  return {price, vwap, signal, cls};
+}
+
+async function run(){
+  try{
+    let oil = analyze(await get("CL=F"));
+    let es = analyze(await get("ES=F"));
+
+    document.getElementById("oil").innerHTML =
+      `<h3>WTI Oil</h3>
+       <p>Price: ${oil.price.toFixed(2)}</p>
+       <p>VWAP: ${oil.vwap.toFixed(2)}</p>
+       <p class="${oil.cls}">${oil.signal}</p>`;
+
+    document.getElementById("es").innerHTML =
+      `<h3>S&P E-mini</h3>
+       <p>Price: ${es.price.toFixed(2)}</p>
+       <p>VWAP: ${es.vwap.toFixed(2)}</p>
+       <p class="${es.cls}">${es.signal}</p>`;
+
+  } catch(e){
+    document.body.innerHTML = "Error loading data";
+  }
+}
+
+run();
+setInterval(run,120000);
+</script>
+
+</body>
+</html>
